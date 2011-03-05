@@ -125,6 +125,10 @@ ifdef CONFIG_X11
   ifdef CONFIG_XV
     LIBS+=-lXv
   endif
+  ifdef CONFIG_XFT
+	LIBS+=-lXft
+	CFLAGS+=-I/usr/include/freetype2
+  endif
   LIBS+= -L/usr/X11R6/lib -lXext -lX11
 endif
 

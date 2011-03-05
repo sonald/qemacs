@@ -55,6 +55,7 @@ mpegaudio_hp="yes"
 
 tiny="no"
 x11="no"
+xft="no"
 xv="no"
 xrender="no"
 png="no"
@@ -134,6 +135,10 @@ if test -f "/usr/include/X11/Xlib.h" ; then
     if test -f "/usr/include/X11/extensions/Xv.h" ; then
         xv="yes"
     fi
+
+    if test -f "/usr/include/X11/Xft/Xft.h" ; then
+        xft="yes"
+    fi
 fi
 
 for opt do
@@ -188,6 +193,9 @@ for opt do
         ;;
       --disable-x11)
         x11="no"
+        ;;
+      --disable-xft)
+        xft="no"
         ;;
       --disable-xv)
         xv="no"
@@ -255,6 +263,7 @@ fi
 
 if test "$x11" = "no" ; then
     xv="no"
+    xft="no"
     xrender="no"
     png="no"
     ffmpeg="no"
@@ -304,6 +313,7 @@ fi
 if test "$tiny" = "yes" ; then
     ffmpeg="no"
     x11="no"
+    xft="no"
     xv="no"
     xrender="no"
     png="no"
@@ -349,6 +359,7 @@ echo "  --prefix=PREFIX          install in PREFIX [$prefix]"
 echo "  --enable-win32           enable win32 cross compile"
 echo "  --enable-cygwin          compile for cygwin systems"
 echo "  --disable-x11            disable Xwindow support"
+echo "  --disable-xft            disable Xft support"
 echo "  --disable-xv             disable Xvideo extension support"
 echo "  --disable-xrender        disable Xrender extension support"
 echo "  --enable-tiny            build a very small version"
@@ -375,6 +386,7 @@ echo "Source path         $source_path"
 echo "C compiler          $cc"
 echo "Tiny build          $tiny"
 echo "X11 support         $x11"
+echo "Xft support         $xft"
 echo "Xvideo support      $xv"
 #echo "Xrender support     $xrender"
 echo "libpng support      $png"
@@ -464,6 +476,11 @@ fi
 if test "$x11" = "yes" ; then
   echo "#define CONFIG_X11 1" >> $TMPH
   echo "CONFIG_X11=yes" >> config.mak
+fi
+
+if test "$xft" = "yes" ; then
+  echo "#define CONFIG_XFT 1" >> $TMPH
+  echo "CONFIG_XFT=yes" >> config.mak
 fi
 
 if test "$xv" = "yes" ; then

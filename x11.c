@@ -524,8 +524,7 @@ static void term_fill_rectangle(QEditScreen *s,
 
 static QEFont *term_open_font(QEditScreen *s, int style, int size)
 {
-    const char *family;
-    int weight, slant;
+    const char *family, *weight, *slant;
     XftFont *renderFont;
     QEFont *font;
 
@@ -536,7 +535,7 @@ static QEFont *term_open_font(QEditScreen *s, int style, int size)
     switch (style & QE_FAMILY_MASK) {
     default:
     case QE_FAMILY_FIXED:
-        family = font_family_str;
+        family = default_x11_fonts[0];
         break;
     case QE_FAMILY_SANS:
         family = "sans";
@@ -545,26 +544,42 @@ static QEFont *term_open_font(QEditScreen *s, int style, int size)
         family = "serif";
         break;
     }
-    weight = XFT_WEIGHT_MEDIUM;
+
+    // XFT_WEIGHT_MEDIUM
+    weight = "medium"; 
     if (style & QE_STYLE_BOLD)
-        weight = XFT_WEIGHT_BOLD;
-    slant = XFT_SLANT_ROMAN;
+        weight = "bold";
+
+    // XFT_SLANT_ROMAN
+    slant = "roman";
     if (style & QE_STYLE_ITALIC)
-        slant = XFT_SLANT_ITALIC;
-    renderFont = XftFontOpen(display, xscreen,
-                             XFT_FAMILY, XftTypeString, family,
-                             XFT_SIZE, XftTypeInteger, size,
-                             XFT_WEIGHT, XftTypeInteger, weight,
-                             XFT_SLANT, XftTypeInteger, slant,
-                             0);
+        slant = "italic";
+
+    char pattern[128];
+    snprintf( pattern, sizeof pattern,
+              "%s:size=%d:weight=%s:slant=%s:spacing=dualwidth",
+              family, size, weight, slant );
+    XftPattern* favourate_pat = XftNameParse( pattern );
+    XftResult result;
+    XftPattern* matched_pat = XftFontMatch(
+        display, xscreen, favourate_pat, &result );
+    if ( !matched_pat ) {
+        qe_free( &font );
+        return NULL;
+    }
+
+    renderFont = XftFontOpenPattern( display, matched_pat );
     if (!renderFont) {
-        /* CG: don't know if this can happen, should try fallback? */
         qe_free(&font);
         return NULL;
     }
     font->ascent = renderFont->ascent;
     font->descent = renderFont->descent;
     font->private = renderFont;
+
+    /* XftPatternDestroy( favourate_pat ); */
+    /* XftPatternDestroy( matched_pat ); */
+    
     return font;
 }
 
@@ -580,13 +595,28 @@ static void term_close_font(QEditScreen *s, QEFont *font)
     qe_free(&font);
 }
 
-static int term_glyph_width(QEditScreen *s, QEFont *font, unsigned int cc)
+#if 0
+static int term_glyph_width(QEditScreen *s, QEFont *font, unsigned int cc) 
 {
     XftFont *renderFont = font->private;
     XGlyphInfo gi;
 
     XftTextExtents32(display, renderFont, &cc, 1, &gi);
     return gi.xOff;
+}
+#endif
+
+static void term_text_metrics(QEditScreen *s, QEFont *font,
+                              QECharMetrics *metrics,
+                              const unsigned int *str, int len)
+{
+    metrics->font_ascent = font->ascent;
+    metrics->font_descent = font->descent;
+
+    XftFont *renderFont = font->private;
+    XGlyphInfo gi;
+    XftTextExtents32(display, renderFont, str, len, &gi);
+    metrics->width = gi.xOff;
 }
 
 static void term_draw_text(QEditScreen *s, QEFont *font,
