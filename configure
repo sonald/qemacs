@@ -1,0 +1,556 @@
+#!/bin/sh
+#
+# qemacs configure script (c) 2002 Fabrice Bellard
+#
+
+# set temporary file name
+if test ! -z "$TMPDIR" ; then
+    TMPDIR1="${TMPDIR}"
+elif test ! -z "$TEMPDIR" ; then
+    TMPDIR1="${TEMPDIR}"
+else
+    TMPDIR1="/tmp"
+fi
+
+TMPC="${TMPDIR1}/qemacs-conf-${RANDOM}-$$-${RANDOM}.c"
+TMPO="${TMPDIR1}/qemacs-conf-${RANDOM}-$$-${RANDOM}.o"
+TMPS="${TMPDIR1}/qemacs-conf-${RANDOM}-$$-${RANDOM}.S"
+TMPH="${TMPDIR1}/qemacs-conf-${RANDOM}-$$-${RANDOM}.h"
+
+# default parameters
+prefix="/usr/local"
+cross_prefix=""
+cc="gcc"
+host_cc="gcc"
+ar="ar"
+make="make"
+strip="strip"
+cpu=`uname -m`
+case "$cpu" in
+  i386|i486|i586|i686|i86pc|BePC)
+    cpu="x86"
+    ;;
+  armv4l)
+    cpu="armv4l"
+    ;;
+  alpha)
+    cpu="alpha"
+    ;;
+  *)
+    cpu="unknown"
+    ;;
+esac
+
+unlockio="no"
+ptsname="yes"
+gprof="no"
+network="yes"
+win32="no"
+cygwin="no"
+lshared="no"
+extralibs=""
+simpleidct="yes"
+bigendian="no"
+mpegaudio_hp="yes"
+
+tiny="no"
+x11="no"
+xv="no"
+xrender="no"
+png="no"
+ffmpeg="no"
+html="no"
+doc="yes"
+plugins="yes"
+initcalls="yes"
+mmap="yes"
+kmaps="yes"
+modes="yes"
+bidir="yes"
+exe=""
+
+# OS specific
+targetos=`uname -s`
+case $targetos in
+  BeOS)
+    prefix="/boot/home/config"
+    # helps building libavcodec
+    CFLAGS="-O2 -DPIC"
+    # no need for libm, but the inet stuff
+    # Check for BONE
+    if (echo $BEINCLUDES|grep 'headers/be/bone' >/dev/null); then
+        extralibs="-lbind -lsocket -lm"
+    else
+        echo "Not sure building for net_server will succeed... good luck."
+        extralibs="-lsocket -lm"
+    fi
+    ;;
+  BSD/OS)
+    extralibs="-lpoll -lgnugetopt -lm"
+    make="gmake"
+    doc="no"
+    plugins="no"
+    ptsname="no"
+    ;;
+  OpenBSD)
+    extralibs="-lm"
+    make="gmake"
+    doc="no"
+    plugins="no"
+    ptsname="no"
+    ;;
+  CYGWIN*)
+    cygwin="yes"
+    ;;
+  *)
+    extralibs="-lm"
+    unlockio="yes"
+    ;;
+esac
+
+# find source path
+# XXX: we assume an absolute path is given when launching configure, 
+# except in './configure' case.
+source_path=${0%configure}
+source_path=${source_path%/}
+source_path_used="yes"
+if test -z "$source_path" -o "$source_path" = "." ; then
+    source_path=`pwd`
+    source_path_used="no"
+fi
+
+if test -d "./ffmpeg" ; then
+    ffmpeg="yes"
+    ffmpeg_srcdir="./ffmpeg"
+fi
+
+if test -f "/usr/include/png.h" ; then
+    png="yes"
+fi
+
+if test -f "/usr/include/X11/Xlib.h" ; then
+    x11="yes"
+    html="yes"
+    if test -f "/usr/include/X11/extensions/Xv.h" ; then
+        xv="yes"
+    fi
+fi
+
+for opt do
+    case "$opt" in
+      --prefix=*)
+        prefix=`echo $opt | cut -d '=' -f 2`
+        ;;
+      --source-path=*)
+        source_path=`echo $opt | cut -d '=' -f 2`
+        ;;
+      --cross-prefix=*)
+        cross_prefix=`echo $opt | cut -d '=' -f 2`
+        ;;
+      --cc=*)
+        cc=`echo $opt | cut -d '=' -f 2`
+        ;;
+      --make=*)
+        make=`echo $opt | cut -d '=' -f 2`
+        ;;
+      --extra-cflags=*)
+        CFLAGS="${opt#--extra-cflags=}"
+        ;;
+      --extra-ldflags=*)
+        LDFLAGS="${opt#--extra-ldflags=}"
+        ;;
+      --extra-libs=*)
+        extralibs=${opt#--extra-libs=}
+        ;;
+      --cpu=*)
+        cpu=`echo $opt | cut -d '=' -f 2`
+        ;;
+      --enable-gprof)
+        gprof="yes"
+        ;;
+      --disable-network)
+        network="no"
+        ;;
+      --enable-win32)
+        win32="yes"
+        ;;
+      --enable-cygwin)
+        cygwin="yes" ;
+        ;;
+      --enable-shared)
+        lshared="yes"
+        ;;
+      --disable-mpegaudio-hp)
+        mpegaudio_hp="no"
+        ;;
+      --enable-tiny)
+        tiny="yes"
+        ;;
+      --disable-x11)
+        x11="no"
+        ;;
+      --disable-xv)
+        xv="no"
+        ;;
+      --disable-xrender)
+        xrender="no"
+        ;;
+      --disable-png)
+        png="no"
+        ;;
+      --disable-html)
+        html="no"
+        ;;
+      --disable-plugins)
+        plugins="no"
+        ;;
+      --disable-ffmpeg)
+        ffmpeg="no"
+        ;;
+      --with-ffmpegdir=*)
+        ffmpeg_srcdir=${opt#--with-ffmpegdir=} ; ffmpeg="yes"
+        ;;
+      --with-ffmpeglibdir=*)
+        ffmpeg_libdir=${opt#--with-ffmpeglibdir=}
+        ;;
+    esac
+done
+
+# Checking for CFLAGS
+if test -z "$CFLAGS"; then
+    CFLAGS="-O2"
+fi
+
+if test "$win32" = "yes" ; then
+    if test "$cygwin" = "yes" ; then
+        cross_prefix="i686-pc-mingw32-"
+        gcc_major="3"
+	CFLAGS="$CFLAGS -I/usr/include/mingw -I/usr/include/w32api"
+	LDFLAGS="$LDFLAGS -L/usr/lib/mingw"
+    else
+        cross_prefix="i586-mingw32msvc-"
+	CFLAGS="$CFLAGS -I/usr/i586-mingw32msvc/include"
+	extralibs="$extralibs -lws2_32"
+    fi
+    network="no"
+    doc="no"
+    plugins="no"
+    initcalls="no"
+    x11="no"
+    mmap="no"
+    cygwin="no"
+    exe=".exe"
+fi
+
+if test "$cygwin" = "yes" ; then
+    doc="no"
+    x11="no"
+    png="no"
+    ffmpeg="no"
+    html="no"
+    plugins="no"
+    initcalls="no"
+    exe=".exe"
+fi
+
+if test "$x11" = "no" ; then
+    xv="no"
+    xrender="no"
+    png="no"
+    ffmpeg="no"
+    html="no"
+fi
+
+# endianness : guess with cpu type. Should also use prefix
+if test "$cpu" = "powerpc"; then
+    bigendian="yes"
+fi
+
+cc="${cross_prefix}${cc}"
+ar="${cross_prefix}${ar}"
+strip="${cross_prefix}${strip}"
+
+# ---
+# check availability of some header files
+
+cat > $TMPC << EOF
+#include <malloc.h>
+int main( void ) { return 0; }
+EOF
+
+_memalign=no
+_malloc_h=no
+if $cc -o $TMPO $TMPC 2> /dev/null ; then
+    _malloc_h=yes
+    _memalign=yes
+    # check for memalign - atmos
+    cat > $TMPC << EOF
+#include <malloc.h>
+int main (void) {
+  char *string = NULL;
+  string = memalign(64, sizeof(char));
+  return 0;
+}
+EOF
+    $cc -o $TMPO $TMPC 2> /dev/null || _memalign=no
+fi
+
+if test "$ffmpeg" = "yes" ; then
+    if test -z "$ffmpeg_libdir" ; then
+        ffmpeg_libdir="$ffmpeg_srcdir"
+    fi
+fi
+
+if test "$tiny" = "yes" ; then
+    ffmpeg="no"
+    x11="no"
+    xv="no"
+    xrender="no"
+    png="no"
+    html="no"
+    plugins="no"
+    kmaps="no"
+    modes="no"
+    bidir="no"
+fi
+
+if test -z "$CFLAGS"; then
+    CFLAGS="-O2"
+fi
+
+
+# check gcc version
+cat > $TMPC <<EOF
+int main(void) {
+#if __GNUC__ > 3 || (__GNUC__ == 3 && __GNUC_MINOR__ >= 2)
+return 0;
+#else
+#error gcc < 3.2
+#endif
+}
+EOF
+
+gcc_major="2"
+if $cc -o $TMPO $TMPC 2> /dev/null ; then
+    gcc_major="3"
+fi
+
+if test x"$1" = x"-h" -o x"$1" = x"--help" ; then
+    cat << EOF
+
+Usage: configure [options]
+Options: [defaults in brackets after descriptions]
+
+EOF
+
+echo "Standard options:"
+echo "  --help                   print this message"
+echo "  --prefix=PREFIX          install in PREFIX [$prefix]"
+echo "  --enable-win32           enable win32 cross compile"
+echo "  --enable-cygwin          compile for cygwin systems"
+echo "  --disable-x11            disable Xwindow support"
+echo "  --disable-xv             disable Xvideo extension support"
+echo "  --disable-xrender        disable Xrender extension support"
+echo "  --enable-tiny            build a very small version"
+echo "  --disable-html           disable graphical html support"
+echo "  --disable-png            disable png support"
+echo "  --disable-plugins        disable plugins support"
+echo "  --disable-ffmpeg         disable ffmpeg support"
+echo "  --with-ffmpegdir=DIR     find ffmpeg sources and libraries in DIR"
+echo "                           for audio/video/image support"
+echo ""
+echo "Advanced options (experts only):"
+echo "  --source-path=PATH       path of source code [$source_path]"
+echo "  --cross-prefix=PREFIX    use PREFIX for compile tools [$cross_prefix]"
+echo "  --cc=CC                  use C compiler CC [$cc]"
+echo "  --make=MAKE              use specified make [$make]"
+echo "  --with-ffmpeglibdir=DIR  set ffmpeg object files directory"
+echo ""
+echo "NOTE: The object files are built at the place where configure is launched"
+exit 1
+fi
+
+echo "Install prefix      $prefix"
+echo "Source path         $source_path"
+echo "C compiler          $cc"
+echo "Tiny build          $tiny"
+echo "X11 support         $x11"
+echo "Xvideo support      $xv"
+#echo "Xrender support     $xrender"
+echo "libpng support      $png"
+echo "FFMPEG support      $ffmpeg"
+echo "Graphical HTML      $html"
+echo "Memory mapped files $mmap"
+echo "Initcall support    $initcalls"
+echo "Plugins support     $plugins"
+echo "Bidir support       $bidir"
+echo "All kmaps           $kmaps"
+echo "All modes           $modes"
+echo "Build doc files     $doc"
+echo ""
+echo "Creating config.mak and config.h"
+
+echo "# Automatically generated by configure - do not modify" > config.mak
+echo "/* Automatically generated by configure - do not modify */" > $TMPH
+
+echo "prefix=$prefix" >> config.mak
+echo "#define CONFIG_QE_PREFIX \"$prefix\"" >> $TMPH
+echo "MAKE=$make" >> config.mak
+echo "CC=$cc" >> config.mak
+echo "GCC_MAJOR=$gcc_major" >> config.mak
+echo "HOST_CC=$host_cc" >> config.mak
+echo "AR=$ar" >> config.mak
+echo "STRIP=$strip -s -R .comment -R .note" >> config.mak
+echo "INSTALL=install" >> config.mak
+echo "CFLAGS=$CFLAGS" >> config.mak
+echo "LDFLAGS=$LDFLAGS" >> config.mak
+echo "EXE=$exe" >> config.mak
+
+if test "$cpu" = "x86" ; then
+  echo "TARGET_ARCH_X86=yes" >> config.mak
+  echo "#define ARCH_X86 1" >> $TMPH
+elif test "$cpu" = "armv4l" ; then
+  echo "TARGET_ARCH_ARMV4L=yes" >> config.mak
+  echo "#define ARCH_ARMV4L 1" >> $TMPH
+elif test "$cpu" = "alpha" ; then
+  echo "TARGET_ARCH_ALPHA=yes" >> config.mak
+  echo "#define ARCH_ALPHA 1" >> $TMPH
+elif test "$cpu" = "powerpc" ; then
+  echo "TARGET_ARCH_POWERPC=yes" >> config.mak
+  echo "#define ARCH_POWERPC 1" >> $TMPH
+fi
+if test "$bigendian" = "yes" ; then
+  echo "WORDS_BIGENDIAN=yes" >> config.mak
+  echo "#define WORDS_BIGENDIAN 1" >> $TMPH
+fi
+if test "$unlockio" = "yes" ; then
+  echo "CONFIG_UNLOCKIO=yes" >> config.mak
+  echo "#define CONFIG_UNLOCKIO 1" >> $TMPH
+fi
+if test "$ptsname" = "yes" ; then
+  echo "CONFIG_PTSNAME=yes" >> config.mak
+  echo "#define CONFIG_PTSNAME 1" >> $TMPH
+fi
+if test "$gprof" = "yes" ; then
+  echo "TARGET_GPROF=yes" >> config.mak
+  echo "#define HAVE_GPROF 1" >> $TMPH
+fi
+if test "$lshared" = "yes" ; then
+  echo "BUILD_SHARED=yes" >> config.mak
+  echo "PIC=-fPIC" >> config.mak
+fi
+echo "EXTRALIBS=$extralibs" >> config.mak
+echo -n "VERSION=" >>config.mak
+echo -n `head $source_path/VERSION` >> config.mak
+echo "" >> config.mak
+echo -n "#define QE_VERSION \"" >> $TMPH
+echo -n `head $source_path/VERSION` >> $TMPH
+echo "\"" >> $TMPH
+if test "$network" = "yes" ; then
+  echo "#define CONFIG_NETWORK 1" >> $TMPH
+  echo "CONFIG_NETWORK=yes" >> config.mak
+fi
+
+if test "$win32" = "yes" ; then
+  echo "#define CONFIG_WIN32 1" >> $TMPH
+  echo "CONFIG_WIN32=yes" >> config.mak
+fi
+
+if test "$cygwin" = "yes" ; then
+  echo "#define CONFIG_CYGWIN 1" >> $TMPH
+  echo "CONFIG_CYGWIN=yes" >> config.mak
+fi
+
+if test "$x11" = "yes" ; then
+  echo "#define CONFIG_X11 1" >> $TMPH
+  echo "CONFIG_X11=yes" >> config.mak
+fi
+
+if test "$xv" = "yes" ; then
+  echo "#define CONFIG_XV 1" >> $TMPH
+  echo "CONFIG_XV=yes" >> config.mak
+fi
+
+if test "$xrender" = "yes" ; then
+  echo "#define CONFIG_XRENDER 1" >> $TMPH
+  echo "CONFIG_XRENDER=yes" >> config.mak
+fi
+
+if test "$tiny" = "yes" ; then
+  echo "#define CONFIG_TINY 1" >> $TMPH
+  echo "CONFIG_TINY=yes" >> config.mak
+fi
+
+if test "$html" = "yes" ; then
+  echo "#define CONFIG_HTML 1" >> $TMPH
+  echo "CONFIG_HTML=yes" >> config.mak
+fi
+
+if test "$plugins" = "yes" ; then
+  echo "#define CONFIG_DLL 1" >> $TMPH
+  echo "CONFIG_DLL=yes" >> config.mak
+fi
+
+if test "$initcalls" = "yes" ; then
+  echo "#define CONFIG_INIT_CALLS 1" >> $TMPH
+  echo "CONFIG_INIT_CALLS=yes" >> config.mak
+fi
+
+if test "$png" = "yes" ; then
+  echo "#define CONFIG_PNG_OUTPUT 1" >> $TMPH
+  echo "CONFIG_PNG_OUTPUT=yes" >> config.mak
+fi
+
+if test "$ffmpeg" = "yes" ; then
+  echo "#define CONFIG_FFMPEG 1" >> $TMPH
+  echo "CONFIG_FFMPEG=yes" >> config.mak
+  echo "FFMPEG_SRCDIR=$ffmpeg_srcdir" >> config.mak
+  echo "FFMPEG_LIBDIR=$ffmpeg_libdir" >> config.mak
+fi
+
+if test "$kmaps" = "yes" ; then
+  echo "#define CONFIG_ALL_KMAPS 1" >> $TMPH
+  echo "CONFIG_ALL_KMAPS=yes" >> config.mak
+fi
+
+if test "$mmap" = "yes" ; then
+  echo "#define CONFIG_MMAP 1" >> $TMPH
+  echo "CONFIG_MMAP=yes" >> config.mak
+fi
+
+if test "$modes" = "yes" ; then
+  echo "#define CONFIG_ALL_MODES 1" >> $TMPH
+  echo "CONFIG_ALL_MODES=yes" >> config.mak
+fi
+
+if test "$bidir" = "yes" ; then
+  echo "#define CONFIG_UNICODE_JOIN 1" >> $TMPH
+  echo "CONFIG_UNICODE_JOIN=yes" >> config.mak
+fi
+
+if test "$doc" = "yes" ; then
+  echo "#define CONFIG_DOC 1" >> $TMPH
+  echo "CONFIG_DOC=yes" >> config.mak
+fi
+
+# build tree in object directory if source path is different from current one
+if test "$source_path_used" = "yes" ; then
+    DIRS="tests"
+    FILES="Makefile tests/Makefile"
+    for dir in $DIRS ; do
+        mkdir -p $dir
+    done
+    for f in $FILES ; do
+        ln -sf $source_path/$f $f
+    done
+fi
+echo "SRC_PATH=$source_path" >> config.mak
+
+diff $TMPH config.h >/dev/null 2>&1
+if test $? -ne 0 ; then
+    mv -f $TMPH config.h
+else
+    echo "config.h is unchanged"
+fi
+
+rm -f $TMPC $TMPO $TMPS $TMPH $TMPE
