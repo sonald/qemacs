@@ -524,27 +524,44 @@ static void term_fill_rectangle(QEditScreen *s,
 
 static QEFont *term_open_font(QEditScreen *s, int style, int size)
 {
-    const char *family, *weight, *slant;
+    char family[128];
+    const char *weight, *slant;
     XftFont *renderFont;
     QEFont *font;
+    const char* spacing[] = { "mono", "proportional", "proportional" };
 
     font = qe_mallocz(QEFont);
     if (!font)
         return NULL;
 
-    switch (style & QE_FAMILY_MASK) {
-    default:
-    case QE_FAMILY_FIXED:
-        family = default_x11_fonts[0];
-        break;
-    case QE_FAMILY_SANS:
-        family = "sans";
-        break;
-    case QE_FAMILY_SERIF:
-        family = "serif";
-        break;
-    }
+    /* get font name */
+    int font_index = ((style & QE_FAMILY_MASK) >> QE_FAMILY_SHIFT) - 1;
+    if ((unsigned)font_index >= NB_FONT_FAMILIES)
+        font_index = 0; /* fixed font is default */
+    
+    const char* family_list = qe_state.system_fonts[font_index];
+    if (family_list[0] == '\0')
+        family_list = default_x11_fonts[font_index];
 
+    /* take the nth font number in family list */
+    int font_fallback = (style & QE_FAMILY_FALLBACK_MASK) >> QE_FAMILY_FALLBACK_SHIFT;
+    const char* p = family_list;
+    int i = 0;
+    for (; i < font_fallback; i++) {
+        p = strchr(p, ',');
+        if (!p) {
+            /* no font found */
+            qe_free(&font);
+            return NULL;
+        }
+        p++;
+    }
+    const char* p1 = strchr(p, ',');
+    if (!p1)
+        pstrcpy(family, sizeof(family), p);
+    else
+        pstrncpy(family, sizeof(family), p, p1 - p);
+    
     // XFT_WEIGHT_MEDIUM
     weight = "medium"; 
     if (style & QE_STYLE_BOLD)
@@ -557,8 +574,10 @@ static QEFont *term_open_font(QEditScreen *s, int style, int size)
 
     char pattern[128];
     snprintf( pattern, sizeof pattern,
-              "%s:size=%d:weight=%s:slant=%s:spacing=dualwidth",
-              family, size, weight, slant );
+              "%s:size=%d:weight=%s:slant=%s:spacing=%s",
+              family, size, weight, slant, spacing[font_index] );
+    fprintf(stderr, "%s\n", pattern );
+    
     XftPattern* favourate_pat = XftNameParse( pattern );
     XftResult result;
     XftPattern* matched_pat = XftFontMatch(
