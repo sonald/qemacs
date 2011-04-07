@@ -596,8 +596,7 @@ static QEFont *term_open_font(QEditScreen *s, int style, int size)
     font->descent = renderFont->descent;
     font->private = renderFont;
 
-    /* XftPatternDestroy( favourate_pat ); */
-    /* XftPatternDestroy( matched_pat ); */
+    XftPatternDestroy( favourate_pat );
     
     return font;
 }
